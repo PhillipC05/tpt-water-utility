@@ -7,8 +7,8 @@ const http = require('http');
 const socketIo = require('socket.io');
 require('dotenv').config();
 
-// Import database to initialize
-const db = require('./database');
+// Import database functions
+const { testConnection, initializeTables } = require('./database');
 const iotService = require('./iot-service');
 const maintenanceService = require('./maintenance-service');
 const auditService = require('./audit-service');
@@ -118,6 +118,21 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+
+  // Test database connection
+  const dbConnected = await testConnection();
+  if (!dbConnected) {
+    console.error('Failed to connect to database. Exiting...');
+    process.exit(1);
+  }
+
+  // Initialize database tables
+  try {
+    await initializeTables();
+  } catch (err) {
+    console.error('Failed to initialize database tables:', err);
+    process.exit(1);
+  }
 
   // Set Socket.io instance for services
   iotService.setSocketIO(io);

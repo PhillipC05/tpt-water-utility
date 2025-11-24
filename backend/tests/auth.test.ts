@@ -1,19 +1,42 @@
-const request = require('supertest');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
+ import request from 'supertest';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import express, { Request, Response, NextFunction } from 'express';
 
 // Mock the database
 jest.mock('../src/database', () => ({
-  get: jest.fn(),
-  run: jest.fn(),
-  all: jest.fn()
+  query: jest.fn()
 }));
 
-const db = require('../src/database');
-const { authenticateToken, authorizeRoles } = require('../src/middleware/auth');
+import { query } from '../src/database';
+import { authenticateToken, authorizeRoles } from '../src/middleware/auth';
+
+interface MockRequest {
+  headers: { [key: string]: string | undefined };
+  user?: any;
+}
+
+interface MockResponse {
+  status: jest.MockedFunction<(code: number) => MockResponse>;
+  json: jest.MockedFunction<(data: any) => void>;
+}
+
+interface MockNext {
+  (): void;
+}
+
+interface MockQueryResult {
+  rows: any[];
+  command?: string;
+  rowCount?: number;
+  oid?: number;
+  fields?: any[];
+}
 
 describe('Authentication Middleware', () => {
-  let mockReq, mockRes, mockNext;
+  let mockReq: MockRequest;
+  let mockRes: MockResponse;
+  let mockNext: MockNext;
 
   beforeEach(() => {
     mockReq = {
@@ -29,7 +52,7 @@ describe('Authentication Middleware', () => {
 
   describe('authenticateToken', () => {
     it('should return 401 if no authorization header', () => {
-      authenticateToken(mockReq, mockRes, mockNext);
+      authenticateToken(mockReq as Request, mockRes as any, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(401);
       expect(mockRes.json).toHaveBeenCalledWith({ message: 'Access token required' });
@@ -39,7 +62,7 @@ describe('Authentication Middleware', () => {
     it('should return 401 if malformed authorization header', () => {
       mockReq.headers.authorization = 'Bearer';
 
-      authenticateToken(mockReq, mockRes, mockNext);
+      authenticateToken(mockReq as Request, mockRes as any, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(401);
       expect(mockRes.json).toHaveBeenCalledWith({ message: 'Access token required' });
@@ -48,7 +71,7 @@ describe('Authentication Middleware', () => {
     it('should return 403 for invalid token', () => {
       mockReq.headers.authorization = 'Bearer invalid.token.here';
 
-      authenticateToken(mockReq, mockRes, mockNext);
+      authenticateToken(mockReq as Request, mockRes as any, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(403);
       expect(mockRes.json).toHaveBeenCalledWith({ message: 'Invalid or expired token' });
@@ -56,11 +79,11 @@ describe('Authentication Middleware', () => {
 
     it('should call next for valid token', () => {
       const user = { id: 1, username: 'testuser', role: 'admin' };
-      const token = jwt.sign(user, process.env.JWT_SECRET);
+      const token = jwt.sign(user, process.env.JWT_SECRET || 'test_secret');
 
       mockReq.headers.authorization = `Bearer ${token}`;
 
-      authenticateToken(mockReq, mockRes, mockNext);
+      authenticateToken(mockReq as Request, mockRes as any, mockNext);
 
       expect(mockReq.user).toEqual(user);
       expect(mockNext).toHaveBeenCalled();
@@ -72,7 +95,7 @@ describe('Authentication Middleware', () => {
       mockReq.user = { role: 'operator' };
       const middleware = authorizeRoles('admin');
 
-      middleware(mockReq, mockRes, mockNext);
+      middleware(mockReq as Request, mockRes as any, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(403);
       expect(mockRes.json).toHaveBeenCalledWith({ message: 'Insufficient permissions' });
@@ -83,7 +106,7 @@ describe('Authentication Middleware', () => {
       mockReq.user = { role: 'admin' };
       const middleware = authorizeRoles('admin', 'operator');
 
-      middleware(mockReq, mockRes, mockNext);
+      middleware(mockReq as Request, mockRes as any, mockNext);
 
       expect(mockNext).toHaveBeenCalled();
     });
@@ -91,23 +114,24 @@ describe('Authentication Middleware', () => {
 });
 
 describe('Authentication Routes', () => {
-  let app;
+  let app: express.Application;
 
   beforeEach(() => {
     // Create a minimal express app for testing
-    const express = require('express');
     app = express();
     app.use(express.json());
 
-    // Mock the routes
-    app.use('/auth', require('../src/routes/auth'));
+    // Mock the routes - import the TypeScript version
+    import('../src/routes/auth').then(authRoutes => {
+      app.use('/auth', authRoutes.default);
+    });
   });
 
   describe('POST /auth/login', () => {
     beforeEach(() => {
       // Mock database calls
-      db.get.mockImplementation((query, params, callback) => {
-        if (query.includes('SELECT * FROM users WHERE username = ?')) {
+      (query as jest.MockedFunction<typeof query>).mockImplementation(async (text: string, params?: any[]) => {
+        if (text.includes('SELECT * FROM users WHERE username = $1')) {
           const user = {
             id: 1,
             username: 'testuser',
@@ -115,8 +139,9 @@ describe('Authentication Routes', () => {
             password: bcrypt.hashSync('password123', 10),
             role: 'operator'
           };
-          callback(null, user);
+          return { rows: [user] };
         }
+        return { rows: [] };
       });
     });
 
@@ -149,13 +174,14 @@ describe('Authentication Routes', () => {
 
   describe('POST /auth/register', () => {
     beforeEach(() => {
-      db.get.mockImplementation((query, params, callback) => {
-        callback(null, null); // No existing user
-      });
-
-      db.run.mockImplementation(function(query, params, callback) {
-        this.lastID = 1;
-        callback(null);
+      (query as jest.MockedFunction<typeof query>).mockImplementation(async (text: string, params?: any[]) => {
+        if (text.includes('SELECT * FROM users WHERE username = $1')) {
+          return { rows: [] }; // No existing user
+        }
+        if (text.includes('INSERT INTO users')) {
+          return { rows: [{ id: 1 }] }; // Return inserted user ID
+        }
+        return { rows: [] };
       });
     });
 
@@ -169,7 +195,8 @@ describe('Authentication Routes', () => {
         });
 
       expect(response.status).toBe(201);
-      expect(response.body.message).toBe('User registered successfully');
+      expect(response.body).toHaveProperty('token');
+      expect(response.body.message).toBe('User created successfully');
     });
 
     it('should return 400 for missing fields', async () => {

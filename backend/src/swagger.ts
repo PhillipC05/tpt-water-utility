@@ -1,7 +1,43 @@
-const swaggerJSDoc = require('swagger-jsdoc');
-const swaggerUi = require('swagger-ui-express');
+import swaggerJSDoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import { Application } from 'express';
 
-const options = {
+interface SwaggerOptions {
+  definition: {
+    openapi: string;
+    info: {
+      title: string;
+      version: string;
+      description: string;
+      contact: {
+        name: string;
+        email: string;
+      };
+    };
+    servers: Array<{
+      url: string;
+      description: string;
+    }>;
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: string;
+          scheme: string;
+          bearerFormat: string;
+        };
+      };
+      schemas: {
+        [key: string]: any;
+      };
+    };
+    security: Array<{
+      bearerAuth: any[];
+    }>;
+  };
+  apis: string[];
+}
+
+const options: SwaggerOptions = {
   definition: {
     openapi: '3.0.0',
     info: {
@@ -104,23 +140,21 @@ const options = {
 
 const specs = swaggerJSDoc(options);
 
-module.exports = {
-  swaggerUi,
-  specs,
-  swaggerDocs: (app) => {
-    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
-      explorer: true,
-      swaggerOptions: {
-        docExpansion: 'none',
-        filter: true,
-        showRequestDuration: true
-      }
-    }));
+const swaggerDocs = (app: Application): void => {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+    explorer: true,
+    swaggerOptions: {
+      docExpansion: 'none',
+      filter: true,
+      showRequestDuration: true
+    }
+  }));
 
-    // Serve swagger JSON
-    app.get('/api-docs.json', (req, res) => {
-      res.setHeader('Content-Type', 'application/json');
-      res.send(specs);
-    });
-  }
+  // Serve swagger JSON
+  app.get('/api-docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(specs);
+  });
 };
+
+export { swaggerUi, specs, swaggerDocs };

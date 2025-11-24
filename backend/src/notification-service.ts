@@ -1,13 +1,54 @@
-const nodemailer = require('nodemailer');
-const twilio = require('twilio');
-const db = require('./database');
+import nodemailer, { Transporter } from 'nodemailer';
+import twilio, { Twilio } from 'twilio';
+import { query } from './database';
+
+interface EmailResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+interface SMSResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+interface NotificationRecipient {
+  id: number;
+  email: string;
+  phone?: string;
+  email_notifications: boolean;
+  sms_notifications: boolean;
+}
+
+interface AlertData {
+  id: number;
+  type: string;
+  severity: string;
+  message: string;
+  created_at: string;
+}
+
+interface NotificationLog {
+  user_id: number;
+  type: 'email' | 'sms';
+  alert_id?: number;
+  success: boolean;
+  message_id?: string;
+  error?: string;
+}
 
 class NotificationService {
+  private emailTransporter: Transporter;
+  private twilioClient: Twilio;
+  private twilioPhoneNumber: string;
+
   constructor() {
     // Email configuration
-    this.emailTransporter = nodemailer.createTransporter({
+    this.emailTransporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: false,
       auth: {
         user: process.env.SMTP_USER,
@@ -20,10 +61,10 @@ class NotificationService {
       process.env.TWILIO_ACCOUNT_SID,
       process.env.TWILIO_AUTH_TOKEN
     );
-    this.twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+    this.twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
   }
 
-  async sendEmail(to, subject, text, html = null) {
+  async sendEmail(to: string, subject: string, text: string, html?: string): Promise<EmailResult> {
     try {
       const mailOptions = {
         from: process.env.SMTP_USER,
@@ -36,13 +77,13 @@ class NotificationService {
       const result = await this.emailTransporter.sendMail(mailOptions);
       console.log('Email sent successfully:', result.messageId);
       return { success: true, messageId: result.messageId };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending email:', error);
       return { success: false, error: error.message };
     }
   }
 
-  async sendSMS(to, message) {
+  async sendSMS(to: string, message: string): Promise<SMSResult> {
     try {
       const result = await this.twilioClient.messages.create({
         body: message,
@@ -52,13 +93,13 @@ class NotificationService {
 
       console.log('SMS sent successfully:', result.sid);
       return { success: true, messageId: result.sid };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending SMS:', error);
       return { success: false, error: error.message };
     }
   }
 
-  async notifyAlert(alertData) {
+  async notifyAlert(alertData: AlertData): Promise<{ success: boolean; notifications?: NotificationLog[]; error?: string }> {
     try {
       // Get all users who should receive notifications
       const users = await this.getNotificationRecipients(alertData.severity);
@@ -75,7 +116,7 @@ Please check the system dashboard for more information.
       `.trim();
 
       // Send notifications to all recipients
-      const notifications = [];
+      const notifications: NotificationLog[] = [];
 
       for (const user of users) {
         // Send email if user has email notifications enabled
@@ -116,86 +157,79 @@ Please check the system dashboard for more information.
       await this.logNotifications(notifications);
 
       return { success: true, notifications };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending alert notifications:', error);
       return { success: false, error: error.message };
     }
   }
 
-  async getNotificationRecipients(severity) {
-    return new Promise((resolve, reject) => {
-      // Get users based on severity level
-      let query = 'SELECT id, email, phone, email_notifications, sms_notifications FROM users WHERE ';
-      const params = [];
+  async getNotificationRecipients(severity: string): Promise<NotificationRecipient[]> {
+    let queryText = 'SELECT id, email, phone, email_notifications, sms_notifications FROM users WHERE ';
+    const params: any[] = [];
 
-      switch (severity) {
-        case 'critical':
-          query += 'role IN ("admin", "operator")';
-          break;
-        case 'high':
-          query += 'role IN ("admin", "operator")';
-          break;
-        case 'medium':
-          query += 'role = "admin"';
-          break;
-        case 'low':
-          query += 'role = "admin"';
-          break;
-        default:
-          query += 'role = "admin"';
-      }
+    switch (severity) {
+      case 'critical':
+        queryText += 'role IN ($1, $2)';
+        params.push('admin', 'operator');
+        break;
+      case 'high':
+        queryText += 'role IN ($1, $2)';
+        params.push('admin', 'operator');
+        break;
+      case 'medium':
+        queryText += 'role = $1';
+        params.push('admin');
+        break;
+      case 'low':
+        queryText += 'role = $1';
+        params.push('admin');
+        break;
+      default:
+        queryText += 'role = $1';
+        params.push('admin');
+    }
 
-      db.all(query, params, (err, rows) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(rows);
-        }
-      });
-    });
+    const result = await query(queryText, params);
+    return result.rows;
   }
 
-  async logNotifications(notifications) {
-    return new Promise((resolve, reject) => {
-      const stmt = db.prepare(`
-        INSERT INTO notification_logs
-        (user_id, type, alert_id, success, message_id, error, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
+  async logNotifications(notifications: NotificationLog[]): Promise<void> {
+    if (notifications.length === 0) {
+      return;
+    }
 
-      let completed = 0;
-      const total = notifications.length;
+    const values = notifications.map((notification, index) => 
+      `($${index * 7 + 1}, $${index * 7 + 2}, $${index * 7 + 3}, $${index * 7 + 4}, $${index * 7 + 5}, $${index * 7 + 6}, $${index * 7 + 7})`
+    ).join(', ');
 
-      if (total === 0) {
-        resolve();
-        return;
-      }
-
-      notifications.forEach(notification => {
-        stmt.run([
-          notification.user_id,
-          notification.type,
-          notification.alert_id,
-          notification.success ? 1 : 0,
-          notification.message_id,
-          notification.error,
-          new Date().toISOString()
-        ], (err) => {
-          if (err) {
-            console.error('Error logging notification:', err);
-          }
-          completed++;
-          if (completed === total) {
-            stmt.finalize();
-            resolve();
-          }
-        });
-      });
+    const params: any[] = [];
+    notifications.forEach(notification => {
+      params.push(
+        notification.user_id,
+        notification.type,
+        notification.alert_id || null,
+        notification.success,
+        notification.message_id || null,
+        notification.error || null,
+        new Date().toISOString()
+      );
     });
+
+    const queryText = `
+      INSERT INTO notification_logs
+      (user_id, type, alert_id, success, message_id, error, created_at)
+      VALUES ${values}
+    `;
+
+    try {
+      await query(queryText, params);
+    } catch (error) {
+      console.error('Error logging notifications:', error);
+    }
   }
 
   // Test notification methods
-  async testEmail(email) {
+  async testEmail(email: string): Promise<EmailResult> {
     return this.sendEmail(
       email,
       'Water Utility - Email Test',
@@ -203,7 +237,7 @@ Please check the system dashboard for more information.
     );
   }
 
-  async testSMS(phone) {
+  async testSMS(phone: string): Promise<SMSResult> {
     return this.sendSMS(
       phone,
       'WATER UTILITY: This is a test SMS from the notification system.'
@@ -211,4 +245,5 @@ Please check the system dashboard for more information.
   }
 }
 
-module.exports = new NotificationService();
+const notificationService = new NotificationService();
+export default notificationService;
