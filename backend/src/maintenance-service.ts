@@ -153,7 +153,7 @@ class MaintenanceService {
   private async createMaintenanceLog(schedule: MaintenanceSchedule): Promise<number> {
     const result = await query(
       `INSERT INTO maintenance_logs
-       (schedule_id, asset_id, assigned_to, status, start_time)
+       (schedule_id, asset_id, performed_by, status, start_time)
        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
       [schedule.id, schedule.asset_id, schedule.assigned_to, 'scheduled', new Date().toISOString()]
     );

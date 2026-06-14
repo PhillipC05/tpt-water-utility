@@ -93,13 +93,15 @@ class AuditService {
       const duration = Date.now() - start;
       const logEntry: AuditLogEntry = {
         event: 'api_access',
-        method: req.method,
-        url: req.url,
-        statusCode: res.statusCode,
-        duration: duration,
         userId: req.user ? req.user.id : null,
         ip: req.ip,
-        userAgent: req.get('User-Agent')
+        userAgent: req.get('User-Agent'),
+        details: {
+          method: req.method,
+          url: req.url,
+          statusCode: res.statusCode,
+          duration,
+        },
       };
 
       // Log based on status code

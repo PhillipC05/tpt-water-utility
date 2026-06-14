@@ -41,11 +41,10 @@ interface NotificationLog {
 
 class NotificationService {
   private emailTransporter: Transporter;
-  private twilioClient: Twilio;
+  private _twilioClient: Twilio | null = null;
   private twilioPhoneNumber: string;
 
   constructor() {
-    // Email configuration
     this.emailTransporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -56,12 +55,16 @@ class NotificationService {
       }
     });
 
-    // SMS configuration
-    this.twilioClient = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
     this.twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
+  }
+
+  private get twilioClient(): Twilio | null {
+    if (this._twilioClient) return this._twilioClient;
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    if (!sid || !token) return null;
+    this._twilioClient = twilio(sid, token);
+    return this._twilioClient;
   }
 
   async sendEmail(to: string, subject: string, text: string, html?: string): Promise<EmailResult> {
@@ -84,6 +87,10 @@ class NotificationService {
   }
 
   async sendSMS(to: string, message: string): Promise<SMSResult> {
+    if (!this.twilioClient) {
+      console.warn('SMS skipped: Twilio credentials not configured');
+      return { success: false, error: 'Twilio not configured' };
+    }
     try {
       const result = await this.twilioClient.messages.create({
         body: message,

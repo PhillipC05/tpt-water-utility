@@ -53,6 +53,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../database';
 import dotenv from 'dotenv';
+import { authenticateToken } from '../middleware/auth';
 
 // Load environment variables
 dotenv.config();
@@ -161,6 +162,34 @@ router.post('/login', async (req: Request<{}, AuthResponse, LoginRequest>, res: 
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Change password
+router.post('/change-password', authenticateToken, async (req: Request, res: Response) => {
+  const { current_password, new_password } = req.body;
+
+  if (!current_password || !new_password) {
+    return res.status(400).json({ message: 'current_password and new_password are required' });
+  }
+
+  if (new_password.length < 8) {
+    return res.status(400).json({ message: 'New password must be at least 8 characters' });
+  }
+
+  try {
+    const result = await query('SELECT password FROM users WHERE id = $1', [req.user!.id]);
+    if (result.rows.length === 0) return res.status(404).json({ message: 'User not found' });
+
+    const isValid = await bcrypt.compare(current_password, result.rows[0].password);
+    if (!isValid) return res.status(401).json({ message: 'Current password is incorrect' });
+
+    const hashed = await bcrypt.hash(new_password, 10);
+    await query('UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [hashed, req.user!.id]);
+    return res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 

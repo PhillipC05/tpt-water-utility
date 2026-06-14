@@ -6,10 +6,14 @@ A comprehensive, enterprise-grade water utility management platform built with m
 
 ### Core Functionality
 - **Real-time IoT Sensor Monitoring** - Live data streaming from water sensors (flow, pressure, level, quality, temperature)
-- **Automated Alert System** - Intelligent threshold monitoring with email/SMS notifications
+- **Automated Alert System** - Intelligent threshold monitoring with email/SMS notifications and outbound webhooks
 - **Predictive Maintenance** - Scheduled maintenance with automated notifications and tracking
-- **Advanced Analytics & Reporting** - Multi-chart dashboards with PDF report generation
+- **Advanced Analytics & Reporting** - System summary, water quality, and energy reports
+- **Non-Revenue Water (NRW) Calculator** - Automated water loss analysis comparing production to billed consumption
+- **Statistical Anomaly Detection** - Z-score based outlier detection across all sensor streams
+- **Customer & Billing Management** - Full customer lifecycle, meter readings, bills, and payments
 - **User Management** - Role-based access control with customizable notification preferences
+- **Webhook Integrations** - Push events to Slack, Teams, PagerDuty, or any HTTP endpoint
 
 ### Technical Features
 - **Real-time Updates** - WebSocket integration for live dashboard updates
@@ -53,16 +57,22 @@ A comprehensive, enterprise-grade water utility management platform built with m
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd water-utility-platform
+   git clone https://github.com/PhillipC05/tpt-water-utility.git
+   cd tpt-water-utility
    ```
 
-2. **Start the services**
+2. **Configure secrets**
    ```bash
-   docker-compose up -d
+   cp backend/.env.example backend/.env
+   # Edit backend/.env and set JWT_SECRET and DB_PASS
    ```
 
-3. **Access the application**
+3. **Start the services**
+   ```bash
+   docker-compose -f docker/docker-compose.yml up -d
+   ```
+
+4. **Access the application**
    - Frontend: http://localhost:3000
    - API Documentation: http://localhost:5000/api-docs
    - Backend API: http://localhost:5000
@@ -146,13 +156,18 @@ Access the interactive API documentation at `http://localhost:5000/api-docs` whe
 
 ### Key Endpoints
 
-- **Authentication**: `/auth/login`, `/auth/register`
-- **Sensors**: `/api/sensors` - CRUD operations
-- **Real-time Data**: `/api/sensors/:id/readings`
-- **Alerts**: `/api/alerts` - System alerts management
-- **Maintenance**: `/api/maintenance/*` - Scheduling and tracking
-- **Reports**: `/api/reports` - Analytics and reporting
-- **Audit Logs**: `/api/audit/*` - Security and activity logs
+- **Authentication**: `/auth/login`, `/auth/register`, `/auth/change-password`
+- **Sensors**: `/api/sensors` - Full CRUD + paginated readings
+- **Alerts**: `/api/alerts` - Create, acknowledge, resolve, delete; filter by status/severity
+- **Maintenance**: `/api/maintenance` + `/api/maintenance/history` + `/api/maintenance/upcoming`
+- **Reports**: `/api/reports/summary`, `/api/reports/water-quality`, `/api/reports/energy`
+- **Analytics**: `/api/analytics/nrw` (Non-Revenue Water), `/api/analytics/anomalies`, `/api/analytics/sensor-trends`
+- **Customers**: `/api/customers` - Full CRUD + CSV export
+- **Billing**: `/api/billing-cycles`, `/api/bills`, `/api/payments`, `/api/meter-readings`
+- **Webhooks**: `/api/webhooks` - Register and manage outbound event hooks
+- **Work Orders**: `/api/work-orders`, `/api/service-requests`
+- **Audit Logs**: `/api/audit` - Security and activity logs with cleanup
+- **User Profile**: `/api/users/me` - Self-service profile update
 
 ## 🧪 Testing
 

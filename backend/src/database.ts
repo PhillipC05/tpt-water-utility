@@ -413,7 +413,7 @@ const initializeTables = async (): Promise<void> => {
 
     // Leak detection and water loss table
     await client.query(`
-      CREATE TABLE IF NOT EXISTS leak_detection (
+      CREATE TABLE IF NOT EXISTS leak_detections (
         id SERIAL PRIMARY KEY,
         location TEXT NOT NULL,
         leak_type VARCHAR(50),
@@ -425,7 +425,7 @@ const initializeTables = async (): Promise<void> => {
         repair_date DATE,
         repair_cost DECIMAL(8,2),
         repair_notes TEXT,
-        coordinates GEOMETRY(POINT, 4326),
+        coordinates JSONB,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -467,6 +467,34 @@ const initializeTables = async (): Promise<void> => {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Webhooks table for outbound event notifications
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS webhooks (
+        id SERIAL PRIMARY KEY,
+        url TEXT NOT NULL,
+        secret VARCHAR(100),
+        events TEXT[] DEFAULT ARRAY['alert'],
+        is_active BOOLEAN DEFAULT true,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        last_triggered_at TIMESTAMP WITH TIME ZONE,
+        last_status INTEGER,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Performance indexes
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_readings_sensor_id ON readings(sensor_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_readings_timestamp ON readings(timestamp DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_meter_readings_customer_id ON meter_readings(customer_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_bills_customer_id ON bills(customer_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_is_active ON maintenance_schedules(is_active)`);
 
     await client.query('COMMIT');
     console.log('Database tables initialized successfully');
